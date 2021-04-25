@@ -1,0 +1,34 @@
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+
+<body>
+<div id="elm"></div>
+</body>
+
+<!-- Put the name of your app here (my sources place in `src` forder) -->
+<script src="main.js"></script>
+
+<!-- Removes splash and starts elm app. -->
+<script type="text/javascript">
+    console.log(window.innerWidth);
+    console.log(window.innerHeight);
+    const app = Elm.Main.init({
+        node: document.getElementById('elm'),
+        flags: {width: window.innerWidth, height: window.innerHeight}
+    });
+    app.ports.sendMessage.subscribe(function({letter, solution}) {
+        try {
+            if(String(eval(solution)) === letter) {
+                app.ports.messageReceiver.send({letter, result: true, solution});
+                return;
+            }
+        } catch {}
+        app.ports.messageReceiver.send({letter, result: false, solution});
+    });
+</script>
+
+</html>
