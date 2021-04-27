@@ -52,6 +52,8 @@ type Msg
     | EvalResultReceived IncomingMsg
     | DeviceClassified Int Int
     | CharButtonClicked String
+    | BackspaceClicked
+    | ClearClicked
 
 
 alphabet : List String
@@ -179,6 +181,12 @@ update msg model =
         CharButtonClicked c ->
             update (TextChanged (inputString model.input ++ c)) model
 
+        BackspaceClicked ->
+            update (inputString model.input |> String.dropRight 1 |> TextChanged) model
+
+        ClearClicked ->
+            update (TextChanged "") model
+
 
 view : Model -> Html Msg
 view model =
@@ -220,19 +228,20 @@ view model =
                     else
                         50
              in
-             [ El.spacing gap, El.padding gap ]
+             [ El.spacing gap, El.padding gap, El.alignRight, El.centerX ]
             )
         |> (\letters ->
                 El.column [ El.width El.fill ]
                     [ letters
                     , Input.text
-                        [ width, Font.family [ Font.monospace ], Input.focusedOnLoad ]
+                        [ Font.family [ Font.monospace ], Input.focusedOnLoad ]
                         { onChange = TextChanged
                         , text = inputString model.input
                         , placeholder = Nothing
-                        , label = Input.labelAbove [ El.centerX ] (El.text "Recreate the above only using !+()[]!")
+                        , label =
+                            Input.labelAbove [ El.centerX, El.padding 25, Font.center ]
+                                (El.paragraph [] <| [ El.text "Create the letters only using !+()[]!" ])
                         }
-                        |> El.el [ El.centerX ]
                     , El.el [ El.centerX ]
                         (El.text "→")
                     , El.el
@@ -277,7 +286,27 @@ view model =
                                         ]
                                         { label = El.text c, onPress = Just <| CharButtonClicked c }
                                 )
-                            |> El.row [ El.spacing 10, El.width El.fill, El.paddingXY 10 30 ]
+                            |> El.row [ El.spacing 10, El.width El.fill, El.paddingXY 10 20 ]
+
+                      else
+                        El.none
+                    , if isMobile then
+                        [ Input.button
+                            [ El.width El.fill
+                            , Font.center
+                            , El.padding 10
+                            , Bg.color <| El.rgb 0.6 0.6 0.6
+                            ]
+                            { label = El.text "⌫", onPress = Just <| BackspaceClicked }
+                        , Input.button
+                            [ El.width El.fill
+                            , Font.center
+                            , El.padding 10
+                            , Bg.color <| El.rgb 0.6 0.6 0.6
+                            ]
+                            { label = El.text "Clear", onPress = Just <| ClearClicked }
+                        ]
+                            |> El.row [ El.spacingXY 50 10, El.width El.fill, El.paddingXY 30 10 ]
 
                       else
                         El.none
