@@ -2,32 +2,35 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
+    <title>Learn your ABCs with JS!</title>
 </head>
 
 <body>
 <div id="elm"></div>
 </body>
 
-<!-- Put the name of your app here (my sources place in `src` forder) -->
 <script src="main.js"></script>
 
 <!-- Removes splash and starts elm app. -->
 <script type="text/javascript">
-    console.log(window.innerWidth);
-    console.log(window.innerHeight);
+    if (localStorage["solutions"] === undefined) {
+        localStorage["solutions"] = JSON.stringify({});
+    }
     const app = Elm.Main.init({
         node: document.getElementById('elm'),
-        flags: {width: window.innerWidth, height: window.innerHeight}
+        flags: {width: window.innerWidth, height: window.innerHeight, solutions: Object.entries(JSON.parse(localStorage["solutions"]))}
     });
-    app.ports.sendMessage.subscribe(function({letter, solution}) {
+    app.ports.sendMessage.subscribe(function({toEval}) {
         try {
-            if(String(eval(solution)) === letter) {
-                app.ports.messageReceiver.send({letter, result: true, solution});
-                return;
-            }
-        } catch {}
-        app.ports.messageReceiver.send({letter, result: false, solution});
+            const result = String(eval(toEval));
+            app.ports.messageReceiver.send({toEval, evalResult: result});
+            const sol = JSON.parse(localStorage["solutions"]);
+            sol[result] = toEval;
+            localStorage["solutions"] = JSON.stringify(sol);
+        } catch (e) {
+            console.log(e);
+            app.ports.messageReceiver.send({toEval, evalResult: null});
+        }
     });
 </script>
 
