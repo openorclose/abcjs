@@ -3,6 +3,7 @@ port module Main exposing (..)
 import Browser
 import Dict exposing (Dict)
 import Element as El
+import Element.Background as Bg
 import Element.Border as Border
 import Element.Font as Font
 import Element.Input as Input
@@ -11,36 +12,42 @@ import Set exposing (Set)
 
 
 type alias OutgoingMsg =
-    { letter : String, solution : String }
+    { toEval : String }
 
 
 type alias IncomingMsg =
-    { letter : String, solution : String, result : Bool }
+    { toEval : String, evalResult : Maybe String }
 
 
 type Attempt
-    = Unattempted
+    = Unsolved
+    | Solved String
+
+
+type Input
+    = Empty
     | HasInvalidCharacters String
     | WaitingForEval String
-    | Correct String
-    | Incorrect String
+    | Evalled { toEval : String, evalResult : Maybe String }
 
 
 type alias Model =
     { progress : Dict String Attempt
     , device : El.Device
+    , input : Input
     }
 
 
 type alias Flags =
     { height : Int
     , width : Int
+    , solutions : List ( String, String )
     }
 
 
 type Msg
     = None
-    | TextChanged { for : String, newValue : String }
+    | TextChanged String
     | EvalResultReceived IncomingMsg
 
 
@@ -65,12 +72,27 @@ main =
 
 
 init : Flags -> ( Model, Cmd msg )
-init { height, width } =
+init { height, width, solutions } =
+    let
+        dict =
+            Dict.fromList solutions
+    in
     ( { progress =
             alphabet
-                |> List.map (\char -> ( char, Unattempted ))
+                |> List.map
+                    (\char ->
+                        ( char
+                        , case Dict.get char dict of
+                            Just solution ->
+                                Solved solution
+
+                            Nothing ->
+                                Unsolved
+                        )
+                    )
                 |> Dict.fromList
       , device = El.classifyDevice { height = height, width = width }
+      , input = Empty
       }
     , Cmd.none
     )
@@ -92,48 +114,53 @@ update msg model =
         None ->
             ( model, Cmd.none )
 
-        TextChanged { for, newValue } ->
+        TextChanged toEval ->
             let
                 valid =
-                    String.all (\l -> Set.member l allowed) newValue
+                    String.all (\l -> Set.member l allowed) toEval
             in
             ( { model
-                | progress =
-                    model.progress
-                        |> Dict.insert for
-                            (if newValue == "" then
-                                Unattempted
+                | input =
+                    if toEval == "" then
+                        Empty
 
-                             else if valid then
-                                WaitingForEval newValue
+                    else if valid then
+                        WaitingForEval toEval
 
-                             else
-                                HasInvalidCharacters newValue
-                            )
+                    else
+                        HasInvalidCharacters toEval
               }
-            , if valid && newValue /= "" then
-                OutgoingMsg for newValue |> sendMessage
+            , if valid && toEval /= "" then
+                OutgoingMsg toEval |> sendMessage
 
               else
                 Cmd.none
             )
 
-        EvalResultReceived { letter, result, solution } ->
-            ( { model
-                | progress =
-                    model.progress
-                        |> Dict.insert letter
-                            ((if result then
-                                Correct
+        EvalResultReceived ({ evalResult, toEval } as arg) ->
+            let
+                newModel =
+                    { model
+                        | input = Evalled arg
+                    }
+            in
+            case evalResult of
+                Nothing ->
+                    ( newModel
+                    , Cmd.none
+                    )
 
-                              else
-                                Incorrect
-                             )
-                                solution
+                Just result ->
+                    case Dict.get result model.progress of
+                        Nothing ->
+                            ( newModel, Cmd.none )
+
+                        Just _ ->
+                            ( { newModel
+                                | progress = Dict.insert result (Solved toEval) model.progress
+                              }
+                            , Cmd.none
                             )
-              }
-            , Cmd.none
-            )
 
 
 view : Model -> Html Msg
@@ -142,12 +169,18 @@ view model =
         |> Dict.toList
         |> List.map
             (\( char, attempt ) ->
-                Input.text [ El.width (El.px 300), El.alignLeft, Font.family [ Font.monospace ] ]
-                    { onChange = \newValue -> TextChanged { for = char, newValue = newValue }
-                    , text = attemptString attempt
-                    , placeholder = Nothing
-                    , label = Input.labelLeft (El.width (El.px 20) :: labelBorder attempt) (El.text char)
-                    }
+                El.el
+                    [ Bg.color
+                        (if attempt == Unsolved then
+                            El.rgba 0.8 0.8 0.8 0.5
+
+                         else
+                            El.rgba 0 1 0 0.5
+                        )
+                    , El.padding 15
+                    , El.width (El.px 40)
+                    ]
+                    (El.text char)
             )
         |> (case ( model.device.class, model.device.orientation ) of
                 ( El.Phone, El.Portrait ) ->
@@ -157,42 +190,78 @@ view model =
                     El.wrappedRow
            )
             [ El.spacing 50, El.padding 50 ]
+        |> (\letters ->
+                El.column []
+                    [ letters
+                    , Input.text
+                        [ El.width (El.px 500), Font.family [ Font.monospace ], Input.focusedOnLoad ]
+                        { onChange = TextChanged
+                        , text = inputString model.input
+                        , placeholder = Nothing
+                        , label = Input.labelAbove [ El.centerX ] (El.text "Recreate the above only using !+()[]!")
+                        }
+                        |> El.el [ El.centerX ]
+                    , El.el [ El.centerX ]
+                        (El.text "→")
+                    , El.el
+                        [ El.centerX, Font.center, inputBackgroundColor model.input, El.paddingXY 50 30, El.height <| El.px 90, El.width <| El.px 500 ]
+                        ((case model.input of
+                            Empty ->
+                                ""
+
+                            HasInvalidCharacters _ ->
+                                "Disallowed characters used!"
+
+                            WaitingForEval _ ->
+                                "Processing..."
+
+                            Evalled { evalResult } ->
+                                case evalResult of
+                                    Nothing ->
+                                        "Opps! JS error"
+
+                                    Just string ->
+                                        string
+                         )
+                            |> El.text
+                        )
+                    ]
+           )
         |> El.layout []
 
 
-attemptString : Attempt -> String
-attemptString attempt =
-    case attempt of
-        Unattempted ->
+inputBackgroundColor input =
+    case input of
+        Empty ->
+            El.rgba 0.9 0.9 0.9 0.5 |> Bg.color
+
+        HasInvalidCharacters _ ->
+            El.rgba 1 0 0 0.5 |> Bg.color
+
+        WaitingForEval _ ->
+            El.rgba 0.9 0.9 0.9 0.5 |> Bg.color
+
+        Evalled { evalResult } ->
+            Bg.color <|
+                case evalResult of
+                    Nothing ->
+                        El.rgba 1 0 0 0.5
+
+                    Just _ ->
+                        El.rgba 0 1 0 0.5
+
+
+inputString : Input -> String
+inputString input =
+    case input of
+        Empty ->
             ""
-
-        WaitingForEval string ->
-            string
-
-        Correct string ->
-            string
-
-        Incorrect string ->
-            string
 
         HasInvalidCharacters string ->
             string
 
+        WaitingForEval string ->
+            string
 
-labelBorder : Attempt -> List (El.Attribute msg)
-labelBorder attempt =
-    case attempt of
-        Correct _ ->
-            [ El.rgb 0 1 0 |> Border.color, Border.width 1 ]
-
-        Incorrect _ ->
-            [ El.rgb 1 0 0 |> Border.color, Border.width 1 ]
-
-        Unattempted ->
-            [ Border.width 0 ]
-
-        WaitingForEval _ ->
-            [ El.rgb 0.5 0.5 0.5 |> Border.color, Border.width 1 ]
-
-        HasInvalidCharacters _ ->
-            [ El.rgb255 255 165 0 |> Border.color, Border.width 1 ]
+        Evalled { toEval } ->
+            toEval
