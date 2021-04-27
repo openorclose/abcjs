@@ -1,10 +1,11 @@
 port module Main exposing (..)
 
 import Browser
+import Browser.Events exposing (onResize)
 import Dict exposing (Dict)
-import Element as El
+import Element as El exposing (DeviceClass(..))
 import Element.Background as Bg
-import Element.Border as Border
+import Element.Events as Events
 import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html)
@@ -49,6 +50,8 @@ type Msg
     = None
     | TextChanged String
     | EvalResultReceived IncomingMsg
+    | DeviceClassified Int Int
+    | CharButtonClicked String
 
 
 alphabet : List String
@@ -67,8 +70,16 @@ main =
         { init = init
         , view = view
         , update = update
-        , subscriptions = messageReceiver EvalResultReceived |> always
+        , subscriptions = subscriptions
         }
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Sub.batch
+        [ onResize DeviceClassified
+        , messageReceiver EvalResultReceived
+        ]
 
 
 init : Flags -> ( Model, Cmd msg )
@@ -162,9 +173,27 @@ update msg model =
                             , Cmd.none
                             )
 
+        DeviceClassified width height ->
+            ( { model | device = El.classifyDevice { height = height, width = width } }, Cmd.none )
+
+        CharButtonClicked c ->
+            update (TextChanged (inputString model.input ++ c)) model
+
 
 view : Model -> Html Msg
 view model =
+    let
+        isMobile =
+            model.device.class == Phone
+
+        width =
+            El.width <|
+                if isMobile then
+                    El.fill
+
+                else
+                    El.px 500
+    in
     model.progress
         |> Dict.toList
         |> List.map
@@ -182,19 +211,22 @@ view model =
                     ]
                     (El.text char)
             )
-        |> (case ( model.device.class, model.device.orientation ) of
-                ( El.Phone, El.Portrait ) ->
-                    El.column
+        |> El.wrappedRow
+            (let
+                gap =
+                    if isMobile then
+                        10
 
-                _ ->
-                    El.wrappedRow
-           )
-            [ El.spacing 50, El.padding 50 ]
+                    else
+                        50
+             in
+             [ El.spacing gap, El.padding gap ]
+            )
         |> (\letters ->
-                El.column []
+                El.column [ El.width El.fill ]
                     [ letters
                     , Input.text
-                        [ El.width (El.px 500), Font.family [ Font.monospace ], Input.focusedOnLoad ]
+                        [ width, Font.family [ Font.monospace ], Input.focusedOnLoad ]
                         { onChange = TextChanged
                         , text = inputString model.input
                         , placeholder = Nothing
@@ -204,13 +236,19 @@ view model =
                     , El.el [ El.centerX ]
                         (El.text "→")
                     , El.el
-                        [ El.centerX, Font.center, inputBackgroundColor model.input, El.paddingXY 50 30, El.height <| El.px 90, El.width <| El.px 500 ]
+                        [ El.centerX
+                        , Font.center
+                        , inputBackgroundColor model.input
+                        , El.height <| El.px 90
+                        , El.paddingXY 0 30
+                        , width
+                        ]
                         ((case model.input of
                             Empty ->
                                 ""
 
                             HasInvalidCharacters _ ->
-                                "Disallowed characters used!"
+                                "Blocklisted characters used!"
 
                             WaitingForEval _ ->
                                 "Processing..."
@@ -225,6 +263,24 @@ view model =
                          )
                             |> El.text
                         )
+                    , if isMobile then
+                        allowed
+                            |> Set.toList
+                            |> List.map String.fromChar
+                            |> List.map
+                                (\c ->
+                                    Input.button
+                                        [ El.width El.fill
+                                        , Font.center
+                                        , El.padding 10
+                                        , Bg.color <| El.rgb 0.6 0.6 0.6
+                                        ]
+                                        { label = El.text c, onPress = Just <| CharButtonClicked c }
+                                )
+                            |> El.row [ El.spacing 10, El.width El.fill, El.paddingXY 10 30 ]
+
+                      else
+                        El.none
                     ]
            )
         |> El.layout []
